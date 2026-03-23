@@ -4,6 +4,7 @@ CRM Corven — Dashboard module.
 
 from __future__ import annotations
 
+import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -144,6 +145,27 @@ async def get_user_dashboard(db: AsyncSession, tenant_id: UUID, user_id: UUID) -
 # ── Router ───────────────────────────────────────────────────────────────────
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+_DASHBOARD_CACHE_TTL_SECONDS = 300
+_dashboard_metrics_cache: dict[str, tuple[float, DashboardMetrics]] = {}
+
+
+def _get_cached_dashboard_metrics(tenant_id: UUID) -> DashboardMetrics | None:
+    cache_key = str(tenant_id)
+    cache_entry = _dashboard_metrics_cache.get(cache_key)
+    if cache_entry is None:
+        return None
+
+    expires_at, payload = cache_entry
+    if time.time() >= expires_at:
+        _dashboard_metrics_cache.pop(cache_key, None)
+        return None
+    return payload
+
+
+def _set_cached_dashboard_metrics(tenant_id: UUID, payload: DashboardMetrics) -> None:
+    cache_key = str(tenant_id)
+    expires_at = time.time() + _DASHBOARD_CACHE_TTL_SECONDS
+    _dashboard_metrics_cache[cache_key] = (expires_at, payload)
 
 
 @router.get("/admin", response_model=DashboardMetrics)
@@ -157,7 +179,13 @@ async def admin_dashboard(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient role",
         )
-    return await get_admin_dashboard(db, current_user.tenant_id)
+    cached_metrics = _get_cached_dashboard_metrics(current_user.tenant_id)
+    if cached_metrics is not None:
+        return cached_metrics
+
+    metrics = await get_admin_dashboard(db, current_user.tenant_id)
+    _set_cached_dashboard_metrics(current_user.tenant_id, metrics)
+    return metrics
 
 
 @router.get("/user", response_model=UserDashboardMetrics)
