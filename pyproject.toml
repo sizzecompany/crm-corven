@@ -25,6 +25,7 @@ dependencies = [
     "tenacity>=9.0.0",
     "openai>=1.50.0",
     "slowapi>=0.1.9",
+    "sentry-sdk[fastapi]>=2.0.0",
 ]
 
 [project.optional-dependencies]

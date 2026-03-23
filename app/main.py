@@ -9,8 +9,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import sentry_sdk
 import structlog
 from fastapi import FastAPI
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -37,6 +39,12 @@ from app.modules.users.router import router as users_router
 from app.modules.whatsapp.router import router as whatsapp_router
 
 settings = get_settings()
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[FastApiIntegration()],
+    )
 
 logger = structlog.get_logger()
 
