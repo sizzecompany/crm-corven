@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -152,6 +152,11 @@ async def admin_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin dashboard: global metrics for the entire tenant."""
+    if Role(current_user.role) == Role.USER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient role",
+        )
     return await get_admin_dashboard(db, current_user.tenant_id)
 
 

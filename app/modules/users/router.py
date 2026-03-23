@@ -73,7 +73,11 @@ async def get_user(db: AsyncSession, user_id: UUID) -> User:
     return user
 
 
-async def create_user(db: AsyncSession, data: UserCreate) -> User:
+async def create_user(
+    db: AsyncSession,
+    data: UserCreate,
+    tenant_id: UUID | None = None,
+) -> User:
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
         raise ConflictError(f"User with email '{data.email}' already exists")
@@ -83,7 +87,7 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
         name=data.name,
         phone=data.phone,
         role=data.role,
-        tenant_id=UUID(data.tenant_id) if data.tenant_id else None,
+        tenant_id=tenant_id,
     )
     db.add(user)
     await db.flush()
@@ -132,10 +136,14 @@ async def list_users_endpoint(
 @router.post("/", response_model=UserOut, status_code=201)
 async def create_user_endpoint(
     body: UserCreate,
-    _user=require_role(Role.SUPERADMIN, Role.ADMIN),
+    current_user: CurrentUser = require_role(Role.SUPERADMIN, Role.ADMIN),
     db: AsyncSession = Depends(get_db),
 ):
-    user = await create_user(db, body)
+    actor_role = Role(current_user.role)
+    effective_tenant_id = (
+        UUID(body.tenant_id) if actor_role == Role.SUPERADMIN and body.tenant_id else current_user.tenant_id
+    )
+    user = await create_user(db, body, effective_tenant_id)
     return _to_out(user)
 
 
@@ -156,8 +164,12 @@ async def get_user_endpoint(
 async def update_user_endpoint(
     user_id: UUID,
     body: UserUpdate,
-    _user=require_role(Role.SUPERADMIN, Role.ADMIN),
+    current_user: CurrentUser = require_role(Role.SUPERADMIN, Role.ADMIN),
     db: AsyncSession = Depends(get_db),
 ):
+    target_user = await get_user(db, user_id)
+    if Role(current_user.role) != Role.SUPERADMIN and target_user.tenant_id != current_user.tenant_id:
+        raise NotFoundError("User", str(user_id))
+
     user = await update_user(db, user_id, body)
     return _to_out(user)
