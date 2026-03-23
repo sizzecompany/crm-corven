@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Corven — Plataforma SaaS</title>
+    <meta name="description" content="CRM inteligente para corretores de planos de saúde">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ═══ LOGIN SCREEN ═══ -->
+<div id="login-screen" class="login-screen">
+    <div class="login-bg"></div>
+    <div class="login-card">
+        <div class="login-logo">
+            <div class="logo-icon">C</div>
+            <h1>CRM Corven</h1>
+            <p>Plataforma para corretores de planos de saúde</p>
+        </div>
+        <div id="login-step-email" class="login-step">
+            <label>Seu email</label>
+            <input type="email" id="login-email" placeholder="seu@email.com" value="admin@corven.com.br">
+            <button id="btn-send-otp" class="btn-primary" onclick="sendOTP()">Entrar</button>
+            <div class="login-hint">
+                <span>Teste: <strong>admin@corven.com.br</strong> (admin)</span><br>
+                <span>ou <strong>corretor@corven.com.br</strong> (usuário)</span>
+            </div>
+        </div>
+        <div id="login-step-otp" class="login-step" style="display:none">
+            <label>Código de verificação</label>
+            <input type="text" id="login-otp" placeholder="000000" maxlength="6">
+            <button class="btn-primary" onclick="verifyOTP()">Verificar</button>
+            <button class="btn-ghost" onclick="backToEmail()">← Trocar email</button>
+        </div>
+        <div id="login-error" class="login-error" style="display:none"></div>
+    </div>
+</div>
+
+<!-- ═══ APP SHELL ═══ -->
+<div id="app-shell" class="app-shell" style="display:none">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-icon-sm">C</div>
+            <span class="sidebar-brand">CRM Corven</span>
+        </div>
+
+        <nav class="sidebar-nav" id="sidebar-nav">
+            <!-- Populated by JS based on role/plan -->
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-plan" id="sidebar-plan"></div>
+            <div class="sidebar-user" id="sidebar-user">
+                <div class="user-avatar" id="user-avatar">A</div>
+                <div class="user-info">
+                    <span class="user-name" id="user-name">Admin</span>
+                    <span class="user-role" id="user-role">admin</span>
+                </div>
+                <button class="btn-icon" onclick="logout()" title="Sair">⏻</button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+        <header class="topbar" id="topbar">
+            <h2 id="page-title">Dashboard</h2>
+            <div class="topbar-actions">
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" placeholder="Buscar leads, conversas..." id="global-search">
+                </div>
+                <button class="btn-icon notif-btn" title="Notificações">
+                    🔔 <span class="notif-badge" id="notif-badge">3</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="page-content" id="page-content">
+            <!-- Pages loaded dynamically -->
+        </div>
+    </main>
+</div>
+
+<!-- ═══ TEMPLATES ═══ -->
+
+<!-- DASHBOARD PAGE -->
+<template id="tpl-dashboard">
+<div class="page dashboard-page">
+    <div class="metrics-grid" id="metrics-grid">
+        <!-- Filled by JS -->
+    </div>
+    <div class="dashboard-row">
+        <div class="card card-chart">
+            <div class="card-header"><h3>Pipeline de Vendas</h3></div>
+            <div class="pipeline-chart" id="pipeline-chart"></div>
+        </div>
+        <div class="card card-chart">
+            <div class="card-header"><h3>Atividade Recente</h3></div>
+            <div class="activity-feed" id="activity-feed"></div>
+        </div>
+    </div>
+    <div class="dashboard-row">
+        <div class="card card-chart">
+            <div class="card-header"><h3>Tarefas Pendentes</h3><span class="badge" id="tasks-badge">0</span></div>
+            <div class="tasks-list" id="dash-tasks"></div>
+        </div>
+        <div class="card card-chart">
+            <div class="card-header"><h3>Leads por Origem</h3></div>
+            <div class="source-chart" id="source-chart"></div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- CRM KANBAN PAGE -->
+<template id="tpl-crm">
+<div class="page crm-page">
+    <div class="crm-toolbar">
+        <div class="crm-filters">
+            <select id="crm-filter-source"><option value="">Todas origens</option><option value="whatsapp">WhatsApp</option><option value="meta_ads">Meta Ads</option><option value="google_ads">Google Ads</option><option value="indicacao">Indicação</option><option value="organic">Orgânico</option></select>
+        </div>
+        <button class="btn-primary btn-sm" onclick="openNewLeadModal()">＋ Novo Lead</button>
+    </div>
+    <div class="kanban-board" id="kanban-board">
+        <div class="kanban-col" data-stage="novo">
+            <div class="kanban-col-header"><span class="stage-dot novo"></span>Novo Lead<span class="col-count" id="count-novo">0</span></div>
+            <div class="kanban-cards" id="col-novo"></div>
+        </div>
+        <div class="kanban-col" data-stage="contato_iniciado">
+            <div class="kanban-col-header"><span class="stage-dot contato"></span>Contato Iniciado<span class="col-count" id="count-contato_iniciado">0</span></div>
+            <div class="kanban-cards" id="col-contato_iniciado"></div>
+        </div>
+        <div class="kanban-col" data-stage="em_negociacao">
+            <div class="kanban-col-header"><span class="stage-dot negociacao"></span>Em Negociação<span class="col-count" id="count-em_negociacao">0</span></div>
+            <div class="kanban-cards" id="col-em_negociacao"></div>
+        </div>
+        <div class="kanban-col" data-stage="aguardando_retorno">
+            <div class="kanban-col-header"><span class="stage-dot aguardando"></span>Aguardando<span class="col-count" id="count-aguardando_retorno">0</span></div>
+            <div class="kanban-cards" id="col-aguardando_retorno"></div>
+        </div>
+        <div class="kanban-col" data-stage="fechado">
+            <div class="kanban-col-header"><span class="stage-dot fechado"></span>Fechado<span class="col-count" id="count-fechado">0</span></div>
+            <div class="kanban-cards" id="col-fechado"></div>
+        </div>
+        <div class="kanban-col" data-stage="perdido">
+            <div class="kanban-col-header"><span class="stage-dot perdido"></span>Perdido<span class="col-count" id="count-perdido">0</span></div>
+            <div class="kanban-cards" id="col-perdido"></div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- WHATSAPP PAGE -->
+<template id="tpl-whatsapp">
+<div class="page whatsapp-page">
+    <div class="chat-layout">
+        <div class="chat-sidebar">
+            <div class="chat-search">
+                <input type="text" placeholder="Buscar conversa..." id="chat-search-input">
+            </div>
+            <div class="chat-list" id="chat-list">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+        <div class="chat-main" id="chat-main">
+            <div class="chat-empty">
+                <div class="chat-empty-icon">💬</div>
+                <h3>Selecione uma conversa</h3>
+                <p>Escolha um contato para ver as mensagens</p>
+            </div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- USERS PAGE (Admin only) -->
+<template id="tpl-users">
+<div class="page users-page">
+    <div class="page-toolbar">
+        <h3>Usuários da Empresa</h3>
+        <button class="btn-primary btn-sm" onclick="openNewUserModal()">＋ Novo Usuário</button>
+    </div>
+    <div class="data-table-wrap">
+        <table class="data-table" id="users-table">
+            <thead>
+                <tr><th>Nome</th><th>Email</th><th>Função</th><th>Leads</th><th>Status</th><th>Ações</th></tr>
+            </thead>
+            <tbody id="users-tbody"></tbody>
+        </table>
+    </div>
+</div>
+</template>
+
+<!-- IA CONFIG PAGE (Admin - Básico2+) -->
+<template id="tpl-ia">
+<div class="page ia-page">
+    <div class="ia-grid">
+        <div class="card ia-prompt-card">
+            <div class="card-header"><h3>🤖 Prompt Master da IA</h3><span class="plan-badge">Básico 2+</span></div>
+            <p class="card-desc">Defina o comportamento da IA em todas as conversas do WhatsApp.</p>
+            <textarea id="ia-prompt" class="ia-textarea" rows="10" placeholder="Você é um assistente de vendas de planos de saúde. Seja cordial, responda dúvidas sobre planos e sempre tente agendar uma reunião...">Você é uma assistente virtual da Corven Saúde, especializada em planos de saúde.
+
+Regras:
+- Seja sempre cordial e profissional
+- Responda dúvidas sobre planos (Individual, Familiar, PME, Empresarial)
+- Se o cliente demonstrar interesse, peça os dados e agende uma reunião
+- Nunca invente informações sobre preços, confirme com o corretor
+- Em caso de urgência médica, oriente o cliente a ligar para o SAMU (192)</textarea>
+            <button class="btn-primary" onclick="savePrompt()">Salvar Prompt</button>
+        </div>
+        <div class="card ia-status-card">
+            <div class="card-header"><h3>Status da IA</h3></div>
+            <div class="ia-stats">
+                <div class="ia-stat"><span class="ia-stat-value" id="ia-conversations">48</span><span class="ia-stat-label">Conversas atendidas</span></div>
+                <div class="ia-stat"><span class="ia-stat-value" id="ia-responses">156</span><span class="ia-stat-label">Respostas enviadas</span></div>
+                <div class="ia-stat"><span class="ia-stat-value" id="ia-leads-created">8</span><span class="ia-stat-label">Leads qualificados</span></div>
+            </div>
+            <div class="ia-toggle-row">
+                <span>IA ativa nas conversas</span>
+                <label class="toggle"><input type="checkbox" checked id="ia-active"><span class="toggle-slider"></span></label>
+            </div>
+        </div>
+    </div>
+    <div class="card ia-rag-card" id="ia-rag-section" style="display:none">
+        <div class="card-header"><h3>📚 Base de Conhecimento (RAG)</h3><span class="plan-badge intermediario">Intermediário+</span></div>
+        <p class="card-desc">Faça upload de documentos para a IA usar como referência.</p>
+        <div class="rag-files" id="rag-files"></div>
+        <div class="rag-upload">
+            <input type="file" id="rag-file-input" accept=".pdf,.docx,.xlsx,.txt">
+            <button class="btn-secondary" onclick="uploadRAGFile()">📎 Upload Documento</button>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- AGENDA PAGE (Intermediário+) -->
+<template id="tpl-agenda">
+<div class="page agenda-page">
+    <div class="page-toolbar">
+        <h3>📅 Agenda</h3>
+        <div class="toolbar-actions">
+            <button class="btn-secondary btn-sm" onclick="syncGoogleCalendar()">🔄 Sync Google</button>
+            <button class="btn-primary btn-sm" onclick="openNewEventModal()">＋ Novo Evento</button>
+        </div>
+    </div>
+    <div class="agenda-grid">
+        <div class="card agenda-today">
+            <div class="card-header"><h3>Hoje</h3><span class="today-date" id="today-date"></span></div>
+            <div class="events-list" id="today-events"></div>
+        </div>
+        <div class="card agenda-upcoming">
+            <div class="card-header"><h3>Próximos Eventos</h3></div>
+            <div class="events-list" id="upcoming-events"></div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- SECRETARY PAGE (Master only) -->
+<template id="tpl-secretary">
+<div class="page secretary-page">
+    <div class="secretary-chat-layout">
+        <div class="secretary-header">
+            <div class="secretary-avatar">🤖</div>
+            <div>
+                <h3>Secretária Virtual</h3>
+                <p>Agente autônomo — gerencia leads, tarefas, notas e agenda</p>
+            </div>
+            <span class="plan-badge master">Master</span>
+        </div>
+        <div class="secretary-messages" id="secretary-messages">
+            <div class="msg msg-bot">
+                <div class="msg-avatar">🤖</div>
+                <div class="msg-content">
+                    <p>Olá! Sou sua secretária virtual. Posso gerenciar seus leads, criar tarefas, adicionar notas, agendar reuniões e enviar mensagens no WhatsApp. O que precisa?</p>
+                    <div class="msg-suggestions">
+                        <button onclick="secretarySend('Quais leads precisam de follow-up?')">📋 Leads p/ follow-up</button>
+                        <button onclick="secretarySend('Resuma meu dia')">📊 Resumo do dia</button>
+                        <button onclick="secretarySend('Quais tarefas estão atrasadas?')">⚠️ Tarefas atrasadas</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="secretary-input">
+            <input type="text" id="secretary-input" placeholder="Peça qualquer coisa à secretária..." onkeydown="if(event.key==='Enter')secretarySend()">
+            <button class="btn-primary" onclick="secretarySend()">Enviar</button>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- CONFIG PAGE -->
+<template id="tpl-config">
+<div class="page config-page">
+    <div class="config-grid">
+        <div class="card">
+            <div class="card-header"><h3>👤 Meu Perfil</h3></div>
+            <div class="form-group"><label>Nome</label><input type="text" id="cfg-name"></div>
+            <div class="form-group"><label>Email</label><input type="email" id="cfg-email" disabled></div>
+            <div class="form-group"><label>Telefone</label><input type="text" id="cfg-phone" placeholder="(11) 99999-9999"></div>
+            <button class="btn-primary" onclick="saveProfile()">Salvar</button>
+        </div>
+        <div class="card" id="company-card" style="display:none">
+            <div class="card-header"><h3>🏢 Empresa</h3></div>
+            <div class="form-group"><label>Nome</label><input type="text" id="cfg-company-name"></div>
+            <div class="form-group"><label>Plano Atual</label>
+                <div class="plan-display" id="cfg-plan-display"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</template>
+
+<!-- LEAD DETAIL MODAL -->
+<div class="modal-overlay" id="lead-modal" style="display:none">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <h3 id="lead-modal-name">Lead</h3>
+            <button class="modal-close" onclick="closeModal('lead-modal')">✕</button>
+        </div>
+        <div class="modal-body" id="lead-modal-body">
+            <!-- Tabs: Info | Interações | Notas | Tarefas -->
+        </div>
+    </div>
+</div>
+
+<!-- GENERIC MODAL -->
+<div class="modal-overlay" id="generic-modal" style="display:none">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="generic-modal-title">Modal</h3>
+            <button class="modal-close" onclick="closeModal('generic-modal')">✕</button>
+        </div>
+        <div class="modal-body" id="generic-modal-body"></div>
+    </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
