@@ -13,11 +13,19 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from celery import Celery
+import sentry_sdk
 from sqlalchemy import select, func
+from sentry_sdk.integrations.celery import CeleryIntegration
 
 from app.config import get_settings
 
 settings = get_settings()
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[CeleryIntegration()],
+    )
 
 celery_app = Celery(
     "crm_corven",

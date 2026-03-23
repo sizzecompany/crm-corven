@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     META_WHATSAPP_PHONE_ID: str = ""
     META_VERIFY_TOKEN: str = ""
 
+    # ── Error Monitoring (GlitchTip/Sentry) ──
+    SENTRY_DSN: str = ""
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
