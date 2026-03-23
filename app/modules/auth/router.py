@@ -4,9 +4,11 @@ CRM Corven — Auth router.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.dependencies import CurrentUser
 from app.modules.auth import service
@@ -19,17 +21,22 @@ from app.modules.auth.schemas import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+settings = get_settings()
 
 
 @router.post("/request-otp")
+@limiter.limit("3/minute")
 async def request_otp(
+    request: Request,
     body: OTPRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Request an OTP code sent to the user's email."""
     code = await service.request_otp(db, body.email)
-    # In production, don't return the code — send via email.
-    return {"message": "OTP sent to email", "otp_code_dev_only": code}
+    response = {"message": "OTP sent to email"}
+    if settings.APP_ENV == "development":
+        response["otp_code_dev_only"] = code
+    return response
 
 
 @router.post("/verify-otp", response_model=TokenResponse)
