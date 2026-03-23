@@ -149,8 +149,14 @@ def process_new_lead(tenant_id: str, lead_id: str):
     return {"status": "completed"}
 
 
-@celery_app.task(name="app.workers.automation_worker.process_new_message")
-def process_new_message(tenant_id: str, message_id: str):
+@celery_app.task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    retry_backoff=True,
+    name="app.workers.automation_worker.process_new_message",
+)
+def process_new_message(self, tenant_id: str, message_id: str):
     """Process automation rules triggered by new WhatsApp message."""
     # TODO: Notify user, create interaction, etc.
     return {"status": "completed"}
