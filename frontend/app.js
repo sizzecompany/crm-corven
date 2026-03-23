@@ -2,8 +2,11 @@
    CRM Corven — SaaS Frontend Application
    ═══════════════════════════════════════════════════════════════ */
 
+import { requestOtp, verifyOtp } from './api/auth.js';
+import { clearAuthState, getToken, setToken, setTenantId } from './utils/state.js';
+
 const API = 'http://localhost:8000/api/v1';
-let token = localStorage.getItem('crm_token');
+let token = getToken();
 let currentUser = null;
 let currentPage = 'dashboard';
 let leadsCache = [];
@@ -29,10 +32,13 @@ async function api(endpoint, opts = {}) {
 async function sendOTP() {
     const email = document.getElementById('login-email').value.trim();
     if (!email) return;
+
     const btn = document.getElementById('btn-send-otp');
-    btn.textContent = 'Enviando...'; btn.disabled = true;
+    btn.textContent = 'Enviando...';
+    btn.disabled = true;
+
     try {
-        const data = await api('/auth/request-otp', { method: 'POST', body: JSON.stringify({ email }) });
+        const data = await requestOtp(email);
         // Auto-fill OTP in dev mode
         if (data.otp_code_dev_only) {
             document.getElementById('login-otp').value = data.otp_code_dev_only;
@@ -43,18 +49,25 @@ async function sendOTP() {
     } catch(e) {
         showError(e.message);
     }
-    btn.textContent = 'Entrar'; btn.disabled = false;
+
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
 }
 
 async function verifyOTP() {
     const email = document.getElementById('login-email').value.trim();
     const code = document.getElementById('login-otp').value.trim();
     if (!code) return;
+
     try {
-        const data = await api('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email, code }) });
+        const data = await verifyOtp(email, code);
         token = data.access_token;
-        localStorage.setItem('crm_token', token);
-        localStorage.setItem('crm_refresh', data.refresh_token || '');
+        setToken(token);
+
+        if (data.tenant_id) {
+            setTenantId(data.tenant_id);
+        }
+
         await loadApp();
     } catch(e) {
         showError(e.message);
@@ -69,8 +82,7 @@ function backToEmail() {
 
 function logout() {
     token = null; currentUser = null;
-    localStorage.removeItem('crm_token');
-    localStorage.removeItem('crm_refresh');
+    clearAuthState();
     document.getElementById('app-shell').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('login-step-email').style.display = 'block';
@@ -715,3 +727,21 @@ function formatTime(d) {
 if (token) {
     loadApp();
 }
+
+
+Object.assign(window, {
+    sendOTP,
+    verifyOTP,
+    backToEmail,
+    logout,
+    closeModal,
+    openNewEventModal,
+    openNewLeadModal,
+    openNewUserModal,
+    saveProfile,
+    savePrompt,
+    secretarySend,
+    syncGoogleCalendar,
+    uploadRAGFile,
+    navigateTo,
+});
