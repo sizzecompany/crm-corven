@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,7 @@ import enum
 
 class LeadStage(str, enum.Enum):
     NOVO = "novo"
+    QUALIFIED = "qualified"
     CONTATO_INICIADO = "contato_iniciado"
     EM_NEGOCIACAO = "em_negociacao"
     AGUARDANDO_RETORNO = "aguardando_retorno"
@@ -52,6 +53,10 @@ class Lead(Base):
     )
     metadata_extra: Mapped[dict | None] = mapped_column(JSONB, default=dict)
     score: Mapped[int | None] = mapped_column(default=0)
+    score_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority_score: Mapped[float | None] = mapped_column(default=0.0)
+    first_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    qualified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

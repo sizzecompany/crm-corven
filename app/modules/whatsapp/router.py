@@ -18,6 +18,8 @@ from app.database import get_db
 from app.dependencies import CurrentUser, require_role
 from app.models.whatsapp import Message, WhatsAppInstance
 from app.modules.whatsapp.providers import get_provider
+from app.events.outbox import enqueue_outbox_event
+from app.events.schemas import EventName
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -149,14 +151,33 @@ async def process_webhook_message(
     if instance is None:
         return None
 
+    from_number = "".join([c for c in parsed.get("from_number", "") if c.isdigit()])
+    lead_id = None
+    if from_number:
+        from app.models.lead import Lead
+
+        lead_result = await db.execute(
+            select(Lead).where(
+                Lead.tenant_id == instance.tenant_id,
+                Lead.phone.isnot(None),
+            )
+        )
+        for lead in lead_result.scalars().all():
+            normalized = "".join([c for c in (lead.phone or "") if c.isdigit()])
+            if normalized.endswith(from_number[-10:]):
+                lead_id = lead.id
+                break
+
     message = Message(
         tenant_id=instance.tenant_id,
         instance_id=instance.id,
+        lead_id=lead_id,
         direction="inbound",
         content=parsed.get("content", ""),
         media_url=parsed.get("media_url"),
         status="received",
         external_id=parsed.get("external_id"),
+        metadata_extra={"from_number": parsed.get("from_number")},
     )
     db.add(message)
     await db.flush()
@@ -236,6 +257,14 @@ async def send_message_endpoint(
 ):
     """Send a WhatsApp message."""
     message = await send_message(db, current_user.tenant_id, body)
+    await enqueue_outbox_event(
+        db,
+        tenant_id=current_user.tenant_id,
+        event_name=EventName.MESSAGE_SENT,
+        payload={"lead_id": body.lead_id, "message_id": str(message.id), "to": body.to},
+        aggregate_id=body.lead_id,
+        dedupe_key=f"msg-sent:{message.id}",
+    )
     return _message_out(message)
 
 
@@ -248,6 +277,43 @@ async def webhook_handler(
     """Receive incoming webhook from WhatsApp provider."""
     payload = await request.json()
     message = await process_webhook_message(db, provider, payload)
+    if message:
+        await enqueue_outbox_event(
+            db,
+            tenant_id=message.tenant_id,
+            event_name=EventName.MESSAGE_RECEIVED,
+            payload={
+                "lead_id": str(message.lead_id) if message.lead_id else None,
+                "message_id": str(message.id),
+                "content": message.content or "",
+            },
+            aggregate_id=str(message.lead_id) if message.lead_id else str(message.id),
+            dedupe_key=f"msg-received:{message.external_id or message.id}",
+        )
+    return {"status": "ok", "message_id": str(message.id) if message else None}
+
+
+@router.post("/webhook")
+async def webhook_handler_default(
+    request: Request,
+    provider: str = Query("evolution"),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await request.json()
+    message = await process_webhook_message(db, provider, payload)
+    if message:
+        await enqueue_outbox_event(
+            db,
+            tenant_id=message.tenant_id,
+            event_name=EventName.MESSAGE_RECEIVED,
+            payload={
+                "lead_id": str(message.lead_id) if message.lead_id else None,
+                "message_id": str(message.id),
+                "content": message.content or "",
+            },
+            aggregate_id=str(message.lead_id) if message.lead_id else str(message.id),
+            dedupe_key=f"msg-received:{message.external_id or message.id}",
+        )
     return {"status": "ok", "message_id": str(message.id) if message else None}
 
 
@@ -307,4 +373,3 @@ async def get_lead_messages(
     """Get message history for a lead."""
     messages = await get_messages_by_lead(db, current_user.tenant_id, lead_id, skip, limit)
     return [_message_out(m) for m in messages]
-

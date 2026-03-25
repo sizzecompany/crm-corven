@@ -27,6 +27,7 @@ from app.middleware.tenant import TenantMiddleware
 # Module routers
 from app.modules.agent.router import router as agent_router
 from app.modules.auth.router import router as auth_router
+from app.modules.admin.router import router as admin_router
 from app.modules.automations.router import router as automations_router
 from app.modules.calendar.router import router as calendar_router
 from app.modules.campaigns.router import router as campaigns_router
@@ -34,6 +35,8 @@ from app.modules.dashboard.router import router as dashboard_router
 from app.modules.documents.router import router as documents_router
 from app.modules.leads.router import router as leads_router
 from app.modules.settings.router import router as settings_router
+from app.modules.actions.router import router as actions_router
+from app.modules.simulator.router import router as simulator_router
 from app.modules.tenants.router import router as tenants_router
 from app.modules.users.router import router as users_router
 from app.modules.whatsapp.router import router as whatsapp_router
@@ -110,6 +113,9 @@ def create_app() -> FastAPI:
     app.include_router(agent_router, prefix=api_prefix)
     app.include_router(automations_router, prefix=api_prefix)
     app.include_router(settings_router, prefix=api_prefix)
+    app.include_router(admin_router, prefix=api_prefix)
+    app.include_router(actions_router, prefix=api_prefix)
+    app.include_router(simulator_router, prefix=api_prefix)
 
     # ── Serve Frontend (must be LAST to not shadow API routes) ──────────
     if FRONTEND_DIR.exists():
