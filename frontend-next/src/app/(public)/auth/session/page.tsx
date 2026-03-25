@@ -1,0 +1,1 @@
+import { ModulePage } from '@/components/module-page'; import { authService } from '@/services/auth.service'; export default function Page(){return <ModulePage title='Sessão rápida' description='GET /api/v1/auth/me' queryKey={['auth','me']} queryFn={()=>authService.me()} />}

@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-background text-foreground font-sans;
+}
+
+input, textarea, select {
+  @apply bg-card border border-border rounded-md px-3 py-2 text-sm;
+}
+
+button {
+  @apply rounded-md;
+}
