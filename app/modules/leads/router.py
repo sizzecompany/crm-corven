@@ -18,6 +18,8 @@ from app.database import get_db
 from app.dependencies import CurrentUser, require_resource_permission
 from app.models.lead import Lead, LeadInteraction, LeadNote, LeadStage
 from app.models.task import Task
+from app.events.outbox import enqueue_outbox_event
+from app.events.schemas import EventName
 
 
 class LeadCreate(BaseModel):
@@ -60,6 +62,8 @@ class LeadOut(BaseModel):
     campaign_id: str | None = None
     assigned_to: str | None = None
     score: int | None = 0
+    score_reason: str | None = None
+    priority_score: float | None = 0
     created_at: datetime
     updated_at: datetime
 
@@ -116,6 +120,11 @@ class TaskOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ActionCompleteRequest(BaseModel):
+    action_type: str  # task | cadence
+    task_id: str | None = None
 
 
 async def list_leads(
@@ -262,7 +271,8 @@ def _lead_out(l: Lead) -> LeadOut:
         stage=l.stage, source=l.source,
         campaign_id=str(l.campaign_id) if l.campaign_id else None,
         assigned_to=str(l.assigned_to) if l.assigned_to else None,
-        score=l.score, created_at=l.created_at, updated_at=l.updated_at,
+        score=l.score, score_reason=l.score_reason, priority_score=l.priority_score,
+        created_at=l.created_at, updated_at=l.updated_at,
     )
 
 
@@ -301,7 +311,35 @@ async def create_lead_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     lead = await create_lead(db, current_user.tenant_id, current_user.id, body)
+    await enqueue_outbox_event(
+        db,
+        tenant_id=current_user.tenant_id,
+        event_name=EventName.LEAD_CREATED,
+        payload={
+            "lead_id": str(lead.id),
+            "source": lead.source,
+            "segment": (lead.metadata_extra or {}).get("segment", "PF"),
+        },
+        aggregate_id=str(lead.id),
+        dedupe_key=f"lead-created:{lead.id}",
+    )
     return _lead_out(lead)
+
+
+@router.get("/priority", response_model=list[LeadOut])
+async def list_leads_by_priority(
+    current_user: CurrentUser,
+    _permission=require_resource_permission(Resource.LEADS, Action.READ),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Lead)
+        .where(Lead.tenant_id == current_user.tenant_id)
+        .order_by(Lead.priority_score.desc().nullslast(), Lead.updated_at.desc())
+        .limit(limit)
+    )
+    return [_lead_out(l) for l in result.scalars().all()]
 
 
 @router.get("/{lead_id}", response_model=LeadOut)
@@ -388,3 +426,60 @@ async def add_lead_task(
         assigned_to=str(task.assigned_to) if task.assigned_to else None,
         is_follow_up=task.is_follow_up, created_at=task.created_at,
     )
+
+
+@router.post("/{lead_id}/action-complete")
+async def complete_action(
+    lead_id: UUID,
+    body: ActionCompleteRequest,
+    current_user: CurrentUser,
+    _permission=require_resource_permission(Resource.LEADS, Action.UPDATE),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_lead(db, current_user.tenant_id, lead_id)
+    if body.action_type == "task" and body.task_id:
+        task_result = await db.execute(
+            select(Task).where(
+                Task.id == UUID(body.task_id),
+                Task.tenant_id == current_user.tenant_id,
+                Task.lead_id == lead_id,
+            )
+        )
+        task = task_result.scalar_one()
+        task.status = "done"
+        await db.flush()
+        return {"status": "ok", "action": "task_completed"}
+
+    if body.action_type == "cadence":
+        from app.models.lead_cadence import LeadCadence
+
+        cadence_result = await db.execute(
+            select(LeadCadence).where(
+                LeadCadence.tenant_id == current_user.tenant_id,
+                LeadCadence.lead_id == lead_id,
+            )
+        )
+        cadence = cadence_result.scalar_one_or_none()
+        if cadence:
+            cadence.status = "paused"
+            await db.flush()
+        return {"status": "ok", "action": "cadence_paused"}
+
+    if body.action_type == "escalation":
+        from app.models.escalation_alert import EscalationAlert
+        from datetime import timezone
+
+        alert_result = await db.execute(
+            select(EscalationAlert).where(
+                EscalationAlert.tenant_id == current_user.tenant_id,
+                EscalationAlert.lead_id == lead_id,
+                EscalationAlert.resolved_at.is_(None),
+            )
+        )
+        alert = alert_result.scalar_one_or_none()
+        if alert:
+            alert.resolved_at = datetime.now(timezone.utc)
+            await db.flush()
+        return {"status": "ok", "action": "escalation_resolved"}
+
+    return {"status": "ignored"}

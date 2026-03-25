@@ -48,6 +48,18 @@ celery_app.conf.update(
             "task": "app.workers.automation_worker.check_overdue_tasks",
             "schedule": 1800.0,  # Every 30 minutes
         },
+        "consume-sales-events": {
+            "task": "app.workers.autonomous_worker.consume_event_stream",
+            "schedule": 2.0,
+        },
+        "publish-outbox-events": {
+            "task": "app.workers.autonomous_worker.publish_outbox_events",
+            "schedule": 1.0,
+        },
+        "run-cadence-scheduler": {
+            "task": "app.workers.autonomous_worker.cadence_scheduler",
+            "schedule": 60.0,
+        },
     },
 )
 
@@ -160,3 +172,7 @@ def process_new_message(self, tenant_id: str, message_id: str):
     """Process automation rules triggered by new WhatsApp message."""
     # TODO: Notify user, create interaction, etc.
     return {"status": "completed"}
+
+
+# Registers autonomous sales tasks in the same Celery app namespace.
+from app.workers import autonomous_worker  # noqa: E402,F401
