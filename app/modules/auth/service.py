@@ -5,6 +5,7 @@ CRM Corven — Auth service.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,7 +100,12 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> TokenResponse:
         raise OTPInvalidError()
 
     user_id = payload.get("sub")
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = UUID(user_id) if user_id else None
+    except (TypeError, ValueError):
+        raise OTPInvalidError()
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
 
     if user is None or not user.is_active:

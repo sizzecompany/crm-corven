@@ -4,16 +4,20 @@ CRM Corven — Auth module schemas.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class OTPRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
 
 
 class OTPVerify(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    code: str
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class TokenResponse(BaseModel):
@@ -23,7 +27,9 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str = Field(min_length=20)
 
 
 class UserProfile(BaseModel):

@@ -5,12 +5,11 @@ CRM Corven — Leads (CRM Kanban) module: schemas, service, router.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -21,30 +20,34 @@ from app.models.lead import Lead, LeadInteraction, LeadNote, LeadStage
 from app.models.task import Task
 
 
-# ── Schemas ──────────────────────────────────────────────────────────────────
-
 class LeadCreate(BaseModel):
-    name: str
-    email: str | None = None
-    phone: str | None = None
-    source: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=2, max_length=255)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=50)
+    source: str | None = Field(default=None, max_length=100)
     campaign_id: str | None = None
     assigned_to: str | None = None
     metadata_extra: dict | None = None
 
 
 class LeadUpdate(BaseModel):
-    name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    source: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=50)
+    source: str | None = Field(default=None, max_length=100)
     assigned_to: str | None = None
     metadata_extra: dict | None = None
-    score: int | None = None
+    score: int | None = Field(default=None, ge=0, le=100)
 
 
 class LeadStageUpdate(BaseModel):
-    stage: str
+    model_config = ConfigDict(extra="forbid")
+
+    stage: LeadStage
 
 
 class LeadOut(BaseModel):
@@ -64,11 +67,6 @@ class LeadOut(BaseModel):
         from_attributes = True
 
 
-class InteractionCreate(BaseModel):
-    type: str  # call, email, whatsapp, meeting, note
-    content: str | None = None
-
-
 class InteractionOut(BaseModel):
     id: str
     type: str
@@ -81,7 +79,9 @@ class InteractionOut(BaseModel):
 
 
 class NoteCreate(BaseModel):
-    content: str
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=2000)
 
 
 class NoteOut(BaseModel):
@@ -95,8 +95,10 @@ class NoteOut(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    title: str
-    description: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=2, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
     due_date: datetime | None = None
     assigned_to: str | None = None
     is_follow_up: bool = False
@@ -115,8 +117,6 @@ class TaskOut(BaseModel):
     class Config:
         from_attributes = True
 
-
-# ── Service ──────────────────────────────────────────────────────────────────
 
 async def list_leads(
     db: AsyncSession,
@@ -164,7 +164,6 @@ async def create_lead(db: AsyncSession, tenant_id: UUID, user_id: UUID, data: Le
     await db.flush()
     await db.refresh(lead)
 
-    # Create initial interaction
     interaction = LeadInteraction(
         lead_id=lead.id,
         tenant_id=tenant_id,
@@ -198,7 +197,6 @@ async def update_lead_stage(
     lead.stage = stage
     await db.flush()
 
-    # Log stage change as interaction
     interaction = LeadInteraction(
         lead_id=lead.id,
         tenant_id=tenant_id,
@@ -213,6 +211,7 @@ async def update_lead_stage(
 
 
 async def get_interactions(db: AsyncSession, tenant_id: UUID, lead_id: UUID) -> list[LeadInteraction]:
+    await get_lead(db, tenant_id, lead_id)
     result = await db.execute(
         select(LeadInteraction)
         .where(LeadInteraction.lead_id == lead_id, LeadInteraction.tenant_id == tenant_id)
@@ -222,6 +221,7 @@ async def get_interactions(db: AsyncSession, tenant_id: UUID, lead_id: UUID) -> 
 
 
 async def add_note(db: AsyncSession, tenant_id: UUID, lead_id: UUID, user_id: UUID, content: str) -> LeadNote:
+    await get_lead(db, tenant_id, lead_id)
     note = LeadNote(
         lead_id=lead_id,
         tenant_id=tenant_id,
@@ -237,6 +237,7 @@ async def add_note(db: AsyncSession, tenant_id: UUID, lead_id: UUID, user_id: UU
 async def add_task(
     db: AsyncSession, tenant_id: UUID, lead_id: UUID, user_id: UUID, data: TaskCreate
 ) -> Task:
+    await get_lead(db, tenant_id, lead_id)
     task = Task(
         tenant_id=tenant_id,
         lead_id=lead_id,
@@ -251,8 +252,6 @@ async def add_task(
     await db.refresh(task)
     return task
 
-
-# ── Router ───────────────────────────────────────────────────────────────────
 
 router = APIRouter(prefix="/leads", tags=["CRM / Leads"])
 
@@ -269,25 +268,27 @@ def _lead_out(l: Lead) -> LeadOut:
 
 @router.get("/", response_model=list[LeadOut])
 async def list_leads_endpoint(
-    request: Request,
     current_user: CurrentUser,
-    stage: str | None = Query(None),
-    source: str | None = Query(None),
+    _permission= require_resource_permission(Resource.LEADS, Action.READ),
+    stage: LeadStage | None = Query(None),
+    source: str | None = Query(None, max_length=100),
     assigned_to: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
-    # Regular users only see their assigned leads
     user_filter = None
     if Role(current_user.role) == Role.USER:
         user_filter = current_user.id
 
     leads = await list_leads(
-        db, current_user.tenant_id,
-        stage=stage, source=source,
+        db,
+        current_user.tenant_id,
+        stage=stage.value if stage else None,
+        source=source,
         assigned_to=user_filter or (UUID(assigned_to) if assigned_to else None),
-        skip=skip, limit=limit,
+        skip=skip,
+        limit=limit,
     )
     return [_lead_out(l) for l in leads]
 
@@ -296,6 +297,7 @@ async def list_leads_endpoint(
 async def create_lead_endpoint(
     body: LeadCreate,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.CREATE),
     db: AsyncSession = Depends(get_db),
 ):
     lead = await create_lead(db, current_user.tenant_id, current_user.id, body)
@@ -306,6 +308,7 @@ async def create_lead_endpoint(
 async def get_lead_endpoint(
     lead_id: UUID,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.READ),
     db: AsyncSession = Depends(get_db),
 ):
     lead = await get_lead(db, current_user.tenant_id, lead_id)
@@ -317,6 +320,7 @@ async def update_lead_endpoint(
     lead_id: UUID,
     body: LeadUpdate,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
     lead = await update_lead(db, current_user.tenant_id, lead_id, body)
@@ -328,10 +332,10 @@ async def update_lead_stage_endpoint(
     lead_id: UUID,
     body: LeadStageUpdate,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Move lead to a different pipeline stage (Kanban drag/drop)."""
-    lead = await update_lead_stage(db, current_user.tenant_id, lead_id, body.stage, current_user.id)
+    lead = await update_lead_stage(db, current_user.tenant_id, lead_id, body.stage.value, current_user.id)
     return _lead_out(lead)
 
 
@@ -339,6 +343,7 @@ async def update_lead_stage_endpoint(
 async def get_lead_interactions(
     lead_id: UUID,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.READ),
     db: AsyncSession = Depends(get_db),
 ):
     interactions = await get_interactions(db, current_user.tenant_id, lead_id)
@@ -357,6 +362,7 @@ async def add_lead_note(
     lead_id: UUID,
     body: NoteCreate,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
     note = await add_note(db, current_user.tenant_id, lead_id, current_user.id, body.content)
@@ -372,6 +378,7 @@ async def add_lead_task(
     lead_id: UUID,
     body: TaskCreate,
     current_user: CurrentUser,
+    _permission= require_resource_permission(Resource.LEADS, Action.UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
     task = await add_task(db, current_user.tenant_id, lead_id, current_user.id, body)
