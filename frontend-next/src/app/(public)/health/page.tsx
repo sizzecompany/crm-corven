@@ -1,0 +1,1 @@
+import { ModulePage } from '@/components/module-page'; import { healthService } from '@/services/health.service'; export default function Page(){return <ModulePage title='Health' description='GET /health com botão de revalidação via refresh da página' queryKey={['health']} queryFn={()=>healthService.check()} />}
