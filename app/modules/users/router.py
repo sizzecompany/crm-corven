@@ -8,7 +8,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,20 +22,24 @@ from app.models.user import User
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    name: str
-    phone: str | None = None
-    role: str = "user"
+    name: str = Field(min_length=2, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)
+    role: Role = Role.USER
     tenant_id: str | None = None
 
 
 class UserUpdate(BaseModel):
-    name: str | None = None
-    phone: str | None = None
-    role: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)
+    role: Role | None = None
     is_active: bool | None = None
     custom_permissions: dict | None = None
-    avatar_url: str | None = None
+    avatar_url: str | None = Field(default=None, max_length=500)
 
 
 class UserOut(BaseModel):
@@ -86,7 +90,7 @@ async def create_user(
         email=data.email,
         name=data.name,
         phone=data.phone,
-        role=data.role,
+        role=data.role.value,
         tenant_id=tenant_id,
     )
     db.add(user)
@@ -98,6 +102,8 @@ async def create_user(
 async def update_user(db: AsyncSession, user_id: UUID, data: UserUpdate) -> User:
     user = await get_user(db, user_id)
     update_data = data.model_dump(exclude_unset=True)
+    if "role" in update_data and update_data["role"] is not None:
+        update_data["role"] = update_data["role"].value
     for field, value in update_data.items():
         setattr(user, field, value)
     await db.flush()
@@ -121,6 +127,7 @@ def _to_out(u: User) -> UserOut:
 @router.get("/", response_model=list[UserOut])
 async def list_users_endpoint(
     current_user: CurrentUser,
+    _role_check=require_role(Role.SUPERADMIN, Role.ADMIN),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -136,10 +143,17 @@ async def list_users_endpoint(
 @router.post("/", response_model=UserOut, status_code=201)
 async def create_user_endpoint(
     body: UserCreate,
-    current_user: CurrentUser = require_role(Role.SUPERADMIN, Role.ADMIN),
+    current_user: CurrentUser,
+    _role_check=require_role(Role.SUPERADMIN, Role.ADMIN),
     db: AsyncSession = Depends(get_db),
 ):
     actor_role = Role(current_user.role)
+    if actor_role != Role.SUPERADMIN and body.role == Role.SUPERADMIN:
+        raise ConflictError("Only superadmin can create superadmin users")
+
+    if actor_role != Role.SUPERADMIN and body.tenant_id is not None:
+        raise ConflictError("Admins cannot override tenant_id when creating users")
+
     effective_tenant_id = (
         UUID(body.tenant_id) if actor_role == Role.SUPERADMIN and body.tenant_id else current_user.tenant_id
     )
@@ -164,12 +178,21 @@ async def get_user_endpoint(
 async def update_user_endpoint(
     user_id: UUID,
     body: UserUpdate,
-    current_user: CurrentUser = require_role(Role.SUPERADMIN, Role.ADMIN),
+    current_user: CurrentUser,
+    _role_check=require_role(Role.SUPERADMIN, Role.ADMIN),
     db: AsyncSession = Depends(get_db),
 ):
     target_user = await get_user(db, user_id)
-    if Role(current_user.role) != Role.SUPERADMIN and target_user.tenant_id != current_user.tenant_id:
+    actor_role = Role(current_user.role)
+
+    if actor_role != Role.SUPERADMIN and target_user.tenant_id != current_user.tenant_id:
         raise NotFoundError("User", str(user_id))
+
+    if actor_role != Role.SUPERADMIN and target_user.role == Role.SUPERADMIN.value:
+        raise ConflictError("Only superadmin can modify superadmin users")
+
+    if actor_role != Role.SUPERADMIN and body.role == Role.SUPERADMIN:
+        raise ConflictError("Only superadmin can assign superadmin role")
 
     user = await update_user(db, user_id, body)
     return _to_out(user)

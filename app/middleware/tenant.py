@@ -35,8 +35,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         # Skip public routes
-        path = request.url.path.rstrip("/")
-        if any(path.startswith(p) for p in PUBLIC_PATHS):
+        path = request.url.path.rstrip("/") or "/"
+        if path in PUBLIC_PATHS:
             request.state.tenant_id = None
             return await call_next(request)
 
