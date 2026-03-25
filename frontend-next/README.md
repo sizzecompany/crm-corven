@@ -56,4 +56,14 @@ Copie `.env.example` para `.env.local` e ajuste:
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+### Vercel (produção)
+No painel da Vercel, configure as variáveis:
+
+- `NEXT_PUBLIC_API_URL` (URL pública do backend)
+- `NEXT_PUBLIC_APP_URL` (URL do frontend na Vercel)
+- `NODE_ENV=production`
+
+> Recomendação: configure as variáveis para `Production`, `Preview` e `Development` para evitar divergência de ambiente.

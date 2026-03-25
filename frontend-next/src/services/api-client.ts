@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+if (!process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === 'production') {
+  console.warn('[api-client] NEXT_PUBLIC_API_URL não definido. Usando fallback local.');
+}
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
